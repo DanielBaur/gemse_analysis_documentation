@@ -7,7 +7,8 @@ gemse_analysis_docker_image/*
 
 # vodafone Nummer Service: 0800 1721212
 
-
+# exclude the pat credentials
+credentials/*
 
 
 
