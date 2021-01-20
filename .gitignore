@@ -1,0 +1,20 @@
+
+# exclude the contents copied into the Docker image
+gemse_analysis_docker_image/*
+
+# exception to the rule
+!gemse_analysis_docker_image/.gitkeep 
+
+# vodafone Nummer Service: 0800 1721212
+
+
+
+
+
+
+
+
+
+
+
+

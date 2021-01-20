@@ -1,0 +1,4 @@
+version:'3'
+services:
+    gemse_analysis:
+        image:gemse_analysis_image:1.0
