@@ -1,0 +1,30 @@
+# Half-life (sec.)
+2.25630662400000000e+13
+# Number of peaks 
+1
+# Peak Energies (keV)
+1808.7
+# Background efficiency
+1.
+# Lower Fit Range (keV) 
+1804.24 
+# Upper Fit Range (keV)
+1813.16 
+# lower limit of fit parameter „signal“ 
+0
+# upper limit of fit parameter „signal“ 
+15000000
+# lower limit of fit parameter „sample_const“ 
+0
+# upper limit of fit parameter „sample_const“ 
+10000
+# lower limit of fit parameter „bck_const“ 
+0
+# upper limit of fit parameter „bck_const“ 
+1000
+# lower limit of fit parameter „bck_gauss“ 
+0
+# upper limit of fit parameter „bck_gauss“ 
+5000
+# integration constant
+1
