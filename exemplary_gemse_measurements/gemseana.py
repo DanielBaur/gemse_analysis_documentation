@@ -10,6 +10,9 @@
 import subprocess
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+# include the following lines for local analysis
+import getpass
 
 
 
@@ -27,6 +30,10 @@ pathstring_thisroot = abspath_root +"bin/thisroot.sh"
 abspath_bat = abspath_gemse_analysis_infrastructure + "bat/bat/"
 abspath_gemse_root_scripts = abspath_gemse_analysis_infrastructure + "gemse_root_scripts/GeMSE_ROOT_scripts/"
 abspath_gemse_analysis = abspath_gemse_analysis_infrastructure + "gemse_analysis/GeMSE_analysis/"
+
+
+# color
+gemse_mint = "#5a8fa3" # mint green color of the GeMSE logo
 
 
 
@@ -82,6 +89,73 @@ def compare_files_line_by_line(pathstring_file_a, pathstring_file_b):
             ctr_lines += 1
     print(f"compare_files_line_by_line: {ctr_different_lines} different lines")
     return
+
+
+# This function is used to extract both the base and the exponent of a float represented as a string in scientific notation (e.g., 4.77e-7).
+def det_base_and_exponent_of_scientific_notation(input_float, input_precision=5):
+
+    # formatting the input float
+    if type(input_float) == float:
+        input_float_string = format(input_float, "." +str(input_precision) +"e")
+    elif type(input_float) == str:
+        input_float_string = input_float
+
+    # extracting base and exponent
+    float_list = list(input_float_string.split("e"))
+    base = float(float_list[0])
+    expo = int(float_list[1])
+
+    return base, expo
+
+
+# This function is used to match the bases and exponents of a list of floats to the precision of the scientific representation of an input mean.
+# The output of this function is a list of two tuples (decimal base and exponent) of all input numbers (with the mean base and exponent als the 0th element).
+def match_exponents_and_precision_to_mean(
+    input_mean, # input mean, either a float or a string representing a float in scientific notation
+    mean_precision, # output decimal precision of the input mean (int)
+    adapt_float_list): # list of numbers that has to be adapted to the input mean precision
+
+    # formatting the input mean
+    if type(input_mean) == float:
+        m = format(input_mean, "." +str(mean_precision) +"e")
+    elif type(input_mean) == str:
+        m = format(float(input_mean), "." +str(mean_precision) +"e")
+
+    # extracting both base and exponent for all numbers
+    m_base, m_expo = det_base_and_exponent_of_scientific_notation(m)
+    conv_list = [det_base_and_exponent_of_scientific_notation(adapt_float) for adapt_float in adapt_float_list]
+    
+    # adapting both base and exponent for all numbers
+    output_list = [[format(m_base,"." +str(mean_precision) +"f"), m_expo]]
+    for i in range(len(conv_list)):
+        diff_expos = m_expo -conv_list[i][1]
+        if diff_expos > 0:
+            new_base = conv_list[i][0]/(10**(abs(diff_expos)))
+        elif diff_expos <= 0:
+            new_base = conv_list[i][0]*(10**(abs(diff_expos)))
+        else:
+            new_base = conv_list[i][0]
+        #output_list.append([float(format(new_base,"." +str(mean_precision) +"f")), m_expo])
+        output_list.append([format(new_base,"." +str(mean_precision) +"f"), m_expo])
+
+    # returning a list containing all adjusted representations (i.e., a list of two tuples of the following form [<base_in_specified_precision>, <exponent_adapted_to_mean_exponent>])
+    return output_list
+
+
+# This function is used to convert a python isotope string (e.g., 'U238') to a latex-interpretable string (excluding the enclosing '$' characters) without requiring the rex module.
+def conv_isotope_string_to_latex_syntax(isotope_string):
+    amu = "".join([s for s in isotope_string if s.isdigit()])
+    iso = "".join([s for s in isotope_string if s.isalpha()]).capitalize()
+    latex_string = r"^{" +f"{str(int(amu))}" +r"}\mathrm{" +f"{iso}" +r"}"
+    return latex_string
+
+
+# This functions is used to convert a float encoded in scientific notation into a latex-interpretable string (excluding the enclosing '$' characters) without requiring the rex module
+def conv_scifloat_string_to_latex_syntax(scifloat_string):
+    base = float(list(scifloat_string.split("e"))[0])
+    exp = int(list(scifloat_string.split("e"))[1])
+    latex_string = f"{base:.2f}" +r"\cdot 10^{" +f"{exp}" +r"}"
+    return latex_string
 
 
 
@@ -420,7 +494,7 @@ def all_in_one_gemse_analysis(
 
 
 
-
+    
 
 ###############################################################
 ### software-based veto investigation
@@ -575,5 +649,260 @@ def display_signal_file_properties(signal_file):
 #
 #    # displaying cut and veto results
 #    display_signal_file_properties(signal_file=ch0_veto_cut)
+
+
+
+
+
+###############################################################
+### PTFEsc-specific analysis stuff
+###############################################################
+
+
+if getpass.getuser() == "daniel":
+
+    import uproot
+    import sys
+    sys.path.append("/home/daniel/Desktop/arbeitsstuff/20180705__monxe/monxe_software/miscfig/")
+    sys.path.append("/home/daniel/Desktop/arbeitsstuff/20180705__monxe/monxe_software/monxeana/") 
+    import monxeana
+    import Miscellaneous_Figures as miscfig
+    import json
+
+
+    # This function is used to .
+    def gemse_analysis_aftermath(
+        input_filenames, # list containing the utilized mca list files
+        input_time_windows, # list containing the utilized time windows for the respective mca list files
+        input_sample_mass, # mass of the examined sample in kg
+        input_pathstring_calibration_function, # pathstring referring to the utilized calibration function
+        input_pathstring_gemse_analysis_summary, # pathstring referring to the analysis output summary file
+        input_pathstring_added_root_spectrum, # added spectrum root file
+        input_pathstring_wiki_syntax_output, # pathstring referring to the ouput wiki syntax file (which is supposed to simply be copied into the PTFEsc wiki note)
+        input_pathstring_json_output, # pathstring referring to the output .json file
+        input_pathstrings_spectrum_plot, # pathstrings referring to the output commented spectrum plot
+        flag_config = ["default"][0],
+        input_ylim = ""): # keywords passed on to the 'ax1.set_ylim()' function call
+
+        """
+        This function is used to provide a all-in-one function call automatically generating an elaborate summarizing output of the GeMSE analysis of a specific sample.
+        I.e., wiki syntax output, commented spectrum plot.
+        """
+        
+        ### storing the information from the analysis summary file in a dictionary
+        analysis_dictionary = {
+            "mca_list_files" : input_filenames,
+            "mca_list_files_time_windows" : input_time_windows,
+            "sample_mass_kg" : input_sample_mass,
+            "calibration_function" : list(input_pathstring_calibration_function.split("/"))[-1],
+            "isotope_data" : {}}
+        with open(input_pathstring_gemse_analysis_summary, 'r') as gemse_analysis_summary_file:
+            flag_isotope_results = False
+            for i, line in enumerate(gemse_analysis_summary_file, start=1):
+                line_list = list(line.split())
+                # extracting parameters
+                if i==2:
+                    analysis_dictionary.update({"datetimestamp" : line_list[0] +" " +line_list[1]})
+                elif "sample name" in line:
+                    analysis_dictionary.update({"sample_id" : list(line_list[2].split("/"))[-1]})
+                elif "sample spectrum" in line:
+                    analysis_dictionary.update({"sample_spectrum" : list(line_list[2].split("/"))[-1]})
+                elif "background spectrum" in line:
+                    analysis_dictionary.update({"background_spectrum" : list(line_list[2].split("/"))[-1]})
+                elif "simulated efficiencies" in line:
+                    analysis_dictionary.update({"simulated_efficiencies" : list(line_list[2].split("/"))[-1]})
+                elif "fractional uncertainty efficiencies" in line:
+                    analysis_dictionary.update({"fractional_uncertainty_efficiencies" : line_list[3]})
+                elif "energy resolution" in line:
+                    analysis_dictionary.update({"energy_resolution" : list(line_list[2].split("/"))[-1]})
+                elif "measurement time sample" in line:
+                    analysis_dictionary.update({"measurement_time_s" : line_list[3]})
+                    analysis_dictionary.update({"measurement_time_d" : float(line_list[3]) / (60*60*24)})
+                elif "measurement time background" in line:
+                    analysis_dictionary.update({"measurement_time_background_sec" : line_list[3]})
+                elif "BF threshold for signal" in line:
+                    analysis_dictionary.update({"bf_threshold_for_signal" : line_list[4]})
+                elif "CL for activity limit" in line:
+                    analysis_dictionary.update({"cl_for_activity_limit" : line_list[4]})
+                # extracting isotope limits/activities
+                elif flag_isotope_results == True:
+                    isotope = line_list[0]
+                    analysis_dictionary["isotope_data"].update({
+                        isotope : {
+                            "bayes_factor" : line_list[-1],
+                            "upper_limit_bq" : "",
+                            "activity_bq" : "",
+                            "activity_bq_lower" : "",
+                            "activity_bq_upper" : "",
+                            "upper_limit_bq_per_kg" : "",
+                            "activity_bq_per_kg" : "",
+                            "activity_bq_lower_per_kg" : "",
+                            "activity_bq_upper_per_kg" : ""}})
+                    if len(line_list) == 4 and "<" in line_list:
+                        analysis_dictionary["isotope_data"][isotope]["upper_limit_bq"] = float(line_list[2])
+                        analysis_dictionary["isotope_data"][isotope]["upper_limit_bq_per_kg"] = float(line_list[2]) / analysis_dictionary["sample_mass_kg"]
+                    elif len(line_list) == 7 and "-" in line_list and "+" in line_list:
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq"] = line_list[1]
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq_lower"] = line_list[3]
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq_upper"] = line_list[5]
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq_per_kg"] = float(line_list[1]) / analysis_dictionary["sample_mass_kg"]
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq_lower_per_kg"] = float(line_list[3]) / analysis_dictionary["sample_mass_kg"]
+                        analysis_dictionary["isotope_data"][isotope]["activity_bq_upper_per_kg"] = float(line_list[5]) / analysis_dictionary["sample_mass_kg"]
+                    else:
+                        raise Exception(f"something went wrong: {line_list}")
+                elif "Isotope" in line and "Activity (Bq)" in line and "Bayes Factor" in line:
+                    flag_isotope_results = True
+                else:
+                    continue
+
+        ### saving the analysis results dictionary as a .json file
+        with open(input_pathstring_json_output, "w") as json_output_file:
+            json.dump(analysis_dictionary, json_output_file, indent=4)
+
+        ### generating the wiki syntax output file
+        with open(input_pathstring_wiki_syntax_output, 'w+') as output_file:
+            # analysis parameters
+            analysis_parameters_list = [
+                "sample ID:   " +"''" +analysis_dictionary['sample_id'] +"''",
+                "measurement files:   " +"''" +r"'', ''".join(input_filenames) +"''",
+                "analysis date:   " +analysis_dictionary['datetimestamp'],
+                "energy resolution:   " +"''" +analysis_dictionary['energy_resolution'] +"''",
+                "background:   " +"''" +analysis_dictionary['background_spectrum'] +"''",
+                "efficiencies:   " +"''" +analysis_dictionary['simulated_efficiencies'] +"''",
+                "calibration:   " +"''" +list(input_pathstring_calibration_function.split("/"))[-1] +"''",
+                "fractional uncertainty efficiencies:   " +analysis_dictionary['fractional_uncertainty_efficiencies'],
+                "BF threshold for signal:   " +analysis_dictionary['bf_threshold_for_signal'],
+                "CL for activity limit:   " +analysis_dictionary['cl_for_activity_limit'],
+            ]
+            write_string_analysis_parameters = r" \\ ".join(analysis_parameters_list)
+            # isotope parameters
+            write_string_isotopes = ""
+            write_string_activity = ""
+            write_string_bayes_factor = ""
+            for key in analysis_dictionary["isotope_data"].keys():
+                write_string_isotopes += key +r" \\ "
+                if analysis_dictionary['isotope_data'][key]['upper_limit_bq'] != "":
+                    write_string_activity += f"< {analysis_dictionary['isotope_data'][key]['upper_limit_bq']}" +r" \\ "
+                else:
+                    write_string_activity += f"({analysis_dictionary['isotope_data'][key]['activity_bq']} - {analysis_dictionary['isotope_data'][key]['activity_bq_lower']} + {analysis_dictionary['isotope_data'][key]['activity_bq_upper']})" +r" \\ "
+                write_string_bayes_factor += f"{analysis_dictionary['isotope_data'][key]['bayes_factor']}" +r" \\ "
+            # printing to the output file
+            output_file.write(f"| GeMSE analysis | {write_string_analysis_parameters} |||\n")
+            output_file.write(f"| ::: | isotope | activity limit / measured activity [Bq] | bayes factor |\n")
+            output_file.write(f"| ::: | {write_string_isotopes[:-4]} | {write_string_activity[:-4]} | {write_string_bayes_factor[:-4]} |\n\n")
+        print(f"gemse_analysis_aftermath(): saved {input_pathstring_wiki_syntax_output}")
+
+        ### generating the commented spectrum output plot
+        for flag_plot in ["plain","commented_summary"]:#, "commented_internal"]:
+            # extracting the data from the added spectrum root file
+            added_root_spectrum = uproot.open(input_pathstring_added_root_spectrum)
+            hist = added_root_spectrum["hist"]
+            bin_edges = hist.axis().edges() # aequidistant engergy bin edges
+            bin_centers = [bin_edges[i] +0.5*(bin_edges[i+1]-bin_edges[i]) for i in range(len(bin_edges)-1)]
+            counts = list(hist.values()) # number of counts per energy bin
+            counts_errors = list(hist.errors()) # 
+            # figure formatting
+            fig, ax1 = plt.subplots(figsize=miscfig.image_format_dict["talk"]["figsize"], dpi=150)
+            #y_lim = [0, 1.1*(max(counts) +max(counts_errors))]
+            x_lim = [bin_edges[0], bin_edges[-1]]
+            ax1.set_xlim(x_lim)
+            ax1.set_yscale('log')
+            if input_ylim != "":
+                ax1.set_ylim(input_ylim)
+            ax1.yaxis.set_ticklabels([], minor=True)
+            ax1.set_xlabel("energy deposition / $\mathrm{keV}$")
+            binwidth = float(bin_centers[2]-bin_centers[1])
+            ax1.set_ylabel("entries per " +f"${binwidth:.1f}" +r"\,\mathrm{keV}$")
+            # plotting the stepized histogram
+            bin_centers, counts, counts_errors_lower, counts_errors_upper, bin_centers_mod, counts_mod = monxeana.stepize_histogram_data(
+                bincenters = bin_centers,
+                counts = counts,
+                counts_errors_lower = counts_errors,
+                counts_errors_upper = counts_errors,
+                flag_addfirstandlaststep = True)
+            plt.plot(
+                bin_centers_mod,
+                counts_mod,
+                linewidth = 0.2,
+                color = "black",
+                linestyle='-',
+                zorder=1,
+                label="jfk")
+            plt.fill_between(
+                bin_centers,
+                counts-counts_errors_lower,
+                counts+counts_errors_upper,
+                color = gemse_mint,
+                alpha = 1,
+                zorder = 0,
+                interpolate = True)
+            # annotations
+            if flag_plot == "commented_summary":
+                comment_list_sample = [r"\texttt{" +analysis_dictionary['sample_id'].replace("_","\_") +r"} ($" +f"{analysis_dictionary['sample_mass_kg']:.1f}" +r"\,\mathrm{kg},\," +f"{analysis_dictionary['measurement_time_d']:.1f}" +r"\,\mathrm{d}" +"$)"]
+                comment_list_files = [r"   \texttt{" +f.replace("_","\_") +r"}" for i,f in enumerate(input_filenames)]
+                comment_list_results = [
+                    r"$" +conv_isotope_string_to_latex_syntax(key) +r"$: $<" +conv_scifloat_string_to_latex_syntax(format((float(analysis_dictionary['isotope_data'][key]["upper_limit_bq"])/input_sample_mass), ".2e")) +r"\,\mathrm{Bq/kg}$" 
+                    if analysis_dictionary['isotope_data'][key]["upper_limit_bq"] != "" 
+#                    else "" 
+                    else r"$" +conv_isotope_string_to_latex_syntax(key) +r"$: $(" +f"{match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[0][0]}" +r"^{+" +f"{match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[1][0]}" +r"}" +r"_{-" +f"{match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[2][0]}" +r"})\cdot 10^{" +f"{match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[0][1]}" +"}" +r"\,\mathrm{Bq/kg}$" 
+                    for i,key in enumerate(analysis_dictionary['isotope_data'].keys())]
+#mean base: match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[0][0]
+#mean expo: match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[0][1]
+#upper base: match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[1][0]
+#lower base: match_exponents_and_precision_to_mean(analysis_dictionary['isotope_data'][key]['activity_bq_per_kg'], 2, [analysis_dictionary['isotope_data'][key]['activity_bq_upper_per_kg'], analysis_dictionary['isotope_data'][key]['activity_bq_lower_per_kg']])[2][0]
+                monxeana.annotate_comments(
+                    comment_ax = ax1,
+                    comment_list = comment_list_sample,
+                    comment_textpos = [0.025, 0.930],
+                    comment_textcolor = "black",
+                    comment_linesep = 0.1,
+                    comment_fontsize = 11)
+                monxeana.annotate_comments(
+                    comment_ax = ax1,
+                    comment_list = comment_list_results,
+                    comment_textpos = [0.970, 0.930],
+                    comment_textcolor = "black",
+                    comment_linesep = 0.083,
+                    comment_fontsize = 9)
+            elif flag_plot == "commented_internal":
+                comment_list_sample = [r"\texttt{" +input_sample_id.replace("_","\_") +r"}"]
+                comment_list_results = ["yey"]
+            # saving the output plot
+            for i in input_pathstrings_spectrum_plot:
+                if i != "":
+                    savepathstring = i[:-4] +"__" +flag_plot +i[-4:]
+                    fig.savefig(savepathstring)
+                    print(f"gemse_analysis_aftermath(): saved {savepathstring}")
+
+        return input_pathstring_json_output
+
+
+    # This function is used to nicely print the analysis results stored in the .json referred to by 'pathstring_analysis_results_dictionary'
+    def print_analysis_results_nicely(pathstring_analysis_results_json_pathstring):
+
+        # loading the .json summary file
+        with open(pathstring_analysis_results_json_pathstring, "r") as json_input_file:
+            analysis_results_json_file = json.load(json_input_file)
+        print(f"\n\n\n\n")
+        print(100*"#")
+        print(f"### print_analysis_results_nicely: summarized results of {analysis_results_json_file['sample_id']}")
+        print(100*"#")
+        print(f"\n\n")
+
+        # printing input
+        for key in analysis_results_json_file.keys():
+            if key not in ["isotope_data"]:
+                print(f"{key}:")
+                print(f"\t{analysis_results_json_file[key]}\n")
+
+        # printing isotope data
+        print(f"isotope_data:")
+        for ke in analysis_results_json_file["isotope_data"].keys():
+            print(f"\t{ke}:")
+            for k in analysis_results_json_file["isotope_data"][ke].keys():
+                print(f"\t\t{k}: {analysis_results_json_file['isotope_data'][ke][k]}")
+
+        return
+  
 
 
